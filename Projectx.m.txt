@@ -1,0 +1,137 @@
+% Load the dataset
+data = readtable('StudentsPerformance.csv');
+disp(data.Properties.VariableNames);
+
+% Auto-fix column names to valid MATLAB variable names
+data.Properties.VariableNames = matlab.lang.makeValidName(data.Properties.VariableNames);
+
+
+% 1. Visualize Score Distributions 
+figure;
+subplot(1,3,1);
+histogram(data.mathScore);
+xlabel('Math Score'); ylabel('Frequency'); title('Math Score');
+
+subplot(1,3,2);
+histogram(data.readingScore);
+xlabel('Reading Score'); ylabel('Frequency'); title('Reading Score');
+
+subplot(1,3,3);
+histogram(data.writingScore);
+xlabel('Writing Score'); ylabel('Frequency'); title('Writing Score');
+% 2. Correlation Matrix of Scores
+numericData = data{:, {'mathScore', 'readingScore', 'writingScore'}};
+varNames = {'Math', 'Reading', 'Writing'};
+corrMatrix = corr(numericData, 'Rows', 'complete');
+
+figure;
+heatmap(varNames, varNames, corrMatrix);
+title('Correlation Matrix of Scores');
+
+% GPA  
+convertToGPA = @(avg) (avg / 100) * 4;
+avgScore = (data.mathScore + data.readingScore + data.writingScore) / 3;
+data.GPA = convertToGPA(avgScore);
+
+% Assign letter grades
+grades = strings(height(data),1);
+grades(data.GPA >= 3.7) = "A";
+grades(data.GPA >= 3.0 & data.GPA < 3.7) = "B";
+grades(data.GPA >= 2.0 & data.GPA < 3.0) = "C";
+grades(data.GPA >= 1.0 & data.GPA < 2.0) = "D";
+grades(data.GPA < 1.0) = "F";
+data.GradeClass = grades;
+
+% Visualize GPA Distribution
+figure;
+histogram(data.GPA, 'BinWidth', 0.25);
+xlabel('GPA (0.0 - 4.0)');
+ylabel('Number of Students');
+title('GPA Distribution');
+
+% 3. Gender vs Pass/Fail (based on average score >= 60) 
+avgScore = (data.mathScore + data.readingScore + data.writingScore) / 3;
+pass = avgScore >= 60;
+tbl = crosstab(data.gender, pass);
+
+[~, p, stats] = chi2cont(tbl);
+fprintf('Chi-square p-value (Gender vs Pass): %.4f\n', p);
+
+% 4. Regression: Predict Math Score
+mdl = fitlm(data, 'mathScore ~ readingScore + writingScore');
+disp(mdl);
+
+% T-test: Gender vs Math Score
+maleMath = data.mathScore(strcmp(data.gender, 'male'));
+femaleMath = data.mathScore(strcmp(data.gender, 'female'));
+
+[h, p_ttest] = ttest2(maleMath, femaleMath);
+fprintf('T-test p-value (Math Score by Gender): %.4f\n', p_ttest);
+
+if h == 1
+    disp('Result: Significant difference in math scores between genders.');
+else
+    disp('Result: No significant difference in math scores between genders.');
+end
+% Histogram: Math Score by Gender
+figure;
+histogram(maleMath, 'BinWidth', 5, 'FaceAlpha', 0.6, 'FaceColor', 'blue');
+hold on;
+histogram(femaleMath, 'BinWidth', 5, 'FaceAlpha', 0.6, 'FaceColor', 'magenta');
+xlabel('Math Score');
+ylabel('Number of Students');
+title('Math Score Distribution by Gender');
+legend('Male', 'Female');
+
+
+
+% Kruskal-Wallis: Test Preparation vs Math Score
+p_kw_math = kruskalwallis(data.mathScore, data.testPreparationCourse, 'off');
+fprintf('Kruskal-Wallis p-value (Math Score by Test Prep): %.4f\n', p_kw_math);
+
+% Optionally check for reading and writing too:
+p_kw_reading = kruskalwallis(data.readingScore, data.testPreparationCourse, 'off');
+p_kw_writing = kruskalwallis(data.writingScore, data.testPreparationCourse, 'off');
+
+fprintf('Reading Score p-value: %.4f\n', p_kw_reading);
+fprintf('Writing Score p-value: %.4f\n', p_kw_writing);
+
+% Histogram: Math Score by Test Prep Completion 
+completed = data.mathScore(strcmp(data.testPreparationCourse, 'completed'));
+none = data.mathScore(strcmp(data.testPreparationCourse, 'none'));
+
+figure;
+histogram(completed, 'BinWidth', 5, 'FaceAlpha', 0.6, 'FaceColor', [0 0.5 0.8]);
+hold on;
+histogram(none, 'BinWidth', 5, 'FaceAlpha', 0.6, 'FaceColor', [0.8 0.2 0.2]);
+xlabel('Math Score'); ylabel('Number of Students');
+title('Math Score by Test Preparation Completion');
+legend('Completed', 'None');
+
+%monte carlo
+nSim = 1000;
+nStudents = height(data);
+predictedScores = zeros(nStudents, nSim);
+
+residuals = mdl.Residuals.Raw;
+fittedValues = mdl.Fitted;
+
+for i = 1:nSim
+    sampledResiduals = residuals(randi(nStudents, nStudents, 1));
+    predictedScores(:, i) = fittedValues + sampledResiduals;
+end
+studentIndex = 10;
+studentPredictions = predictedScores(studentIndex, :);
+
+figure;
+histogram(studentPredictions, 'BinWidth', 2, 'FaceColor', [0.2 0.6 0.8]);
+xlabel('Predicted Math Score');
+ylabel('Frequency');
+title(['Monte Carlo Prediction Histogram for Student #' num2str(studentIndex)]);
+allSimulatedScores = predictedScores(:);
+
+figure;
+histogram(allSimulatedScores, 'BinWidth', 2, 'FaceColor', [0.3 0.7 0.3]);
+xlabel('Predicted Math Score');
+ylabel('Frequency');
+title('Monte Carlo Simulation: Distribution of All Predicted Math Scores');
